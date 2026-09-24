@@ -1,4 +1,10 @@
 build/
 .vs/
+out/
+
+*.db
+*.tmp
+
+CMakeUserPresets.json
 *.user
 *.suo
