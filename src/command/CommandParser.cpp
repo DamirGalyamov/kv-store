@@ -3,78 +3,100 @@
 #include <iostream>
 #include <vector>
 
+void CommandParser::skip_spaces (
+	std::string::const_iterator& it,
+	const std::string::const_iterator& end) const
+{
+	while (it != end && *it == ' ') {
+		++it;
+	}
+}
+
+CommandType CommandParser::read_command(std::string::const_iterator& it, const std::string::const_iterator& end) const {
+	std::string command = "";
+	while (it != end && *it != ' ') {
+		command += *it;
+		++it;
+	}
+	if (command == "PUT") {
+		return CommandType::put;
+	}
+	else if (command == "GET") {
+		return CommandType::get;
+	}
+	else if (command == "DELETE") {
+		return CommandType::remove;
+	}
+	else if (command == "COMPACT") {
+		return CommandType::compact;
+	}
+	else if (command == "EXIT") {
+		return CommandType::exit;
+	}
+	return CommandType::invalid;
+}
+
+bool CommandParser::read_argument(std::string& result, std::string::const_iterator& it, const std::string::const_iterator& end) const {
+	if (it == end || *it != ' ') {
+		return false;
+	}
+	skip_spaces(it, end);
+	if (it == end || *it != '"') {
+		return false;
+	}
+	++it;
+	while (it != end) {
+		if (*it == '"') {
+			++it;
+			return true;
+		}
+		result.push_back(*it);
+		++it;
+	}
+	return false;
+}
+
 Command CommandParser::parse(const std::string& buffer) const{
-	bool new_word = true;
-	std::vector<std::string> words;
-	std::size_t start;
-	for (std::size_t i = 0; i < buffer.size(); ++i) {
-		if (new_word) {
-			if (buffer[i] != ' ') {
-				start = i;
-				new_word = false;
-			}
-		}
-		else {
-			if (buffer[i] == ' ') {
-				words.push_back(buffer.substr(start, i - start));
-				new_word = true;
-			}
-		}
-	}
-	if (!new_word) {
-		words.push_back(buffer.substr(start, buffer.size() - start));
-	}
+	
 	Command command;
-	if (words.empty() || words.size() > 3) {
+	auto it = buffer.begin();
+	command.type = read_command(it, buffer.end());
+	switch (command.type) {
+	case CommandType::put: {
+		if (!read_argument(command.key, it, buffer.end()) ||
+			!read_argument(command.value, it, buffer.end()))
+		{
+			command.type = CommandType::invalid;
+			break;
+		}
+
+		skip_spaces(it, buffer.end());
+		if (it != buffer.end()) {
+			command.type = CommandType::invalid;
+		}
+		break;
+	}
+	case CommandType::remove:
+	case CommandType::get: {
+		if (read_argument(command.key, it, buffer.end())) {
+			skip_spaces(it, buffer.end());
+			if (it != buffer.end()) {
+				command.type = CommandType::invalid;
+			}
+			break;
+		}
 		command.type = CommandType::invalid;
-		return command;
+		break;
 	}
-	if (words[0] == "PUT") {
-		if (words.size() == 3) {
-			command.type = CommandType::put;
-			command.key = words[1];
-			command.value = words[2];
-		}
-		else {
+	case CommandType::compact:
+	case CommandType::exit: {
+		skip_spaces(it, buffer.end());
+		if (it != buffer.end()) {
 			command.type = CommandType::invalid;
 		}
+		break;
 	}
-	else if (words[0] == "GET") {
-		if (words.size() == 2) {
-			command.type = CommandType::get;
-			command.key = words[1];
-		}
-		else {
-			command.type = CommandType::invalid;
-		}
-	}
-	else if (words[0] == "DELETE") {
-		if (words.size() == 2) {
-			command.type = CommandType::remove;
-			command.key = words[1];
-		}
-		else {
-			command.type = CommandType::invalid;
-		}
-	}
-	else if (words[0] == "COMPACT") {
-		if (words.size() == 1) {
-			command.type = CommandType::compact;
-		}
-		else {
-			command.type = CommandType::invalid;
-		}
-	}
-	else if (words[0] == "EXIT") {
-		if (words.size() == 1) {
-			command.type = CommandType::exit;
-		}
-		else {
-			command.type = CommandType::invalid;
-		}
-	}
-	else {
-		command.type = CommandType::invalid;
 	}
 	return command;
+	}
 }
