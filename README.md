@@ -1,23 +1,31 @@
-Программа, работающая с базой в формате ключ значения, где сами данные хранятся в файле с помощью append-only модели.
+# KV Store
+C++20 Windows command-line key/value store. Append-only binary log, CRC32 validation,
+in-memory position index, shared/exclusive locking, deletion records and compaction.
 
-Программа предлагает пользователю следующие действия
-GET key
-Позволяет получить соответствующее ключу значение, если она присутствует, иначе выводит, что такой запись нет в базе
+## Build (Visual Studio 2022 and vcpkg)
+```powershell
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Debug
+ctest --test-dir build -C Debug --output-on-failure
+.\build\Debug\kv_store.exe
+```
+GoogleTest is required. Benchmarks are optional: configure with -DBUILD_BENCHMARKS=ON.
 
-PUT key value
-Заносит в файл соответствующую запись о добавлении в базу значения под указанным ключом
-
-DELETE key
-Удаляет соответствующую запись из базы, при ее наличии, иначе выводит, что запись не найдена
-
+## Commands
+```text
+PUT "name" "value"
+GET "name"
+DELETE "name"
 COMPACT
-Перезаписывает файл, убирая все лишние записи, оставляя только актуальные данные
-
 EXIT
-Завершает программу
+```
+The database is database.txt in the working directory (binary despite its extension).
+Empty keys and values are rejected. Keys: at most 64 KiB; values: at most 16 MiB.
 
-Программа состоит из трех модулей:
-
-1. Обработчик вводимых в командной строке команд, он определяет корректность введённой строки.
-2. Модуль работы с файлом, тут есть как сам модуль, который получает команду от приложения, и дальше выполняет конкретные действия с файлом, так и рекодер, который считывает запись на на начало которой указывает дескриптор или записывает на указанное дескриптором место нужную запись.
-3. Приложение как связующее между двумя предыдущими, получает прочитанные каманды от первого, и отправляет их второму, после чего обрабатывает результат.
+## Guarantees and limitations
+Use a single KVStore instance per database file, in a single process. Methods on that
+instance are synchronized. Concurrent independent instances/processes are unsupported.
+A truncated final record is removed when reopening the database; other corruption fails
+startup. After an append I/O error, further mutations are rejected until reopening.
+Writes are not explicitly synchronized to physical storage: power-loss durability is
+not guaranteed. Compaction temporarily loads live values into memory and blocks writers.

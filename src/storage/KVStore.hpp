@@ -5,6 +5,7 @@
 
 #include <unordered_map>
 #include <string>
+#include <shared_mutex>
 
 class KVStore {
 public:
@@ -41,4 +42,7 @@ private:
 	std::unordered_map<std::string, std::string> local_storage_;
 	std::unordered_map<std::string, std::streampos> record_positions_in_file;
 	const RecordCodec record_codec_;
+
+	bool write_failed_ = false; // Reopen to recover a possibly truncated tail after an I/O error.
+	mutable std::shared_mutex mutex_;
 };

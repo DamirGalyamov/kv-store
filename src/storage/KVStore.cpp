@@ -1,6 +1,7 @@
 #include "KVStore.hpp"
 
 #include <Windows.h>
+#include <mutex>
 #include <iostream>
 #include <filesystem>
 #include <optional>
@@ -135,7 +136,7 @@ StoreStatus KVStore::read_db() {
 				if (ec) {
 					return StoreStatus::io_error;
 				}
-				//залогировать
+				//пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 				return StoreStatus::ok;
 			}
 			return status;
@@ -221,44 +222,54 @@ GetResult KVStore::get(const std::string& key) const {
 	if (key.empty()) {
 		return { StoreStatus::invalid_argument, std::nullopt };
 	}
-	auto it = record_positions_in_file.find(key);
-	if (it == record_positions_in_file.end()) {
-		return { StoreStatus::not_found, std::nullopt };
-	}
-	std::ifstream database(file_name_,
-		std::ios::binary);
-	if (!database.is_open()) {
-		return{
-			StoreStatus::io_error,
-			std::nullopt
-		};
-	}
+	GetRecord record;
+	{
+		std::shared_lock lock(mutex_);
 
-	GetRecord record = read_current_record(
-		database,
-		it->second
-	);
+		auto it = record_positions_in_file.find(key);
+		if (it == record_positions_in_file.end()) {
+			return { StoreStatus::not_found, std::nullopt };
+		}
+		std::ifstream database(file_name_,
+			std::ios::binary);
+		if (!database.is_open()) {
+			return{
+				StoreStatus::io_error,
+				std::nullopt
+			};
+		}
+
+		record = read_current_record(
+			database,
+			it->second
+		);
+	}
 	if (record.status != StoreStatus::ok)
 	{
 		return { record.status, std::nullopt };
 	}
-	if(record.record.value().type != RecordType::put
+	if (record.record.value().type != RecordType::put
 		|| record.record.value().key != key) {
 		return { StoreStatus::corrupted_data, std::nullopt };
 	}
-	return { record.status, record.record.value().value };
-
-		
+	return { record.status, record.record.value().value };		
 }
+
 //in progress
 StoreStatus KVStore::put(const std::string& key, const std::string& value) {
 	if (key.empty() || value.empty()) {
 		return StoreStatus::invalid_argument;
 	}
-	Record record{ RecordType::put, key, value };
-	WriteResult wresult = write_at_the_end(record);
-	if (wresult.status == StoreStatus::ok) {
-		record_positions_in_file[key] = wresult.record_pos;
+	WriteResult wresult;
+	{
+		std::unique_lock lock(mutex_);
+		if (write_failed_) return StoreStatus::io_error;
+		Record record{ RecordType::put, key, value };
+		wresult = write_at_the_end(record);
+		if (wresult.status == StoreStatus::io_error) write_failed_ = true;
+		if (wresult.status == StoreStatus::ok) {
+			record_positions_in_file[key] = wresult.record_pos;
+		}
 	}
 	return wresult.status;
 }
@@ -268,25 +279,13 @@ StoreStatus KVStore::remove(const std::string& key)
 	if (key.empty()) {
 		return StoreStatus::invalid_argument;
 	}
-	/*auto it = local_storage_.find(key);
-	if (it != local_storage_.end()) {
-		std::string text = "DELETE " + key + "\n";
-		if (write_at_the_end(text) == StoreStatus::ok) {
-			local_storage_.erase(key);
-			return StoreStatus::ok;
-		}
-		else {
-			
-			return StoreStatus::io_error;
-		}
-	}
-	else {
-		return StoreStatus::not_found;
-	}*/
+	std::unique_lock lock(mutex_);
+		if (write_failed_) return StoreStatus::io_error;
 	auto it = record_positions_in_file.find(key);
 	if (it != record_positions_in_file.end()) {
 		Record record{ RecordType::remove, key, "" };
 		WriteResult wresult = write_at_the_end(record);
+		if (wresult.status == StoreStatus::io_error) write_failed_ = true;
 		if (wresult.status == StoreStatus::ok) {
 			record_positions_in_file.erase(it->first);
 		}
@@ -299,21 +298,15 @@ StoreStatus KVStore::remove(const std::string& key)
 
 StoreStatus KVStore::compact() 
 {
-	/*std::string data_base = "";
-	for (const auto& pair : local_storage_) {
-		data_base += "PUT " + pair.first + " " + pair.second + "\n";
-	}
-	if (overwrite(data_base) == StoreStatus::ok) {
-		return StoreStatus::ok;
-	}
-	else {
-		return StoreStatus::io_error;
-	}*/
 	std::unordered_map<std::string, std::string> local_storage;
 	StoreStatus status;
-	status = read_db_for_local_storage(local_storage);
-	if (status == StoreStatus::ok) {
-		status = overwrite(local_storage);
+	{
+		std::unique_lock lock(mutex_);
+		if (write_failed_) return StoreStatus::io_error;
+		status = read_db_for_local_storage(local_storage);
+		if (status == StoreStatus::ok) {
+			status = overwrite(local_storage);
+		}
 	}
 	return status;
 

@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 enable_testing()
 
 find_package(GTest CONFIG REQUIRED)
+option(BUILD_BENCHMARKS "Build benchmarks" OFF)
 
 add_library(kv_store_storage
 	src/storage/KVStore.cpp
@@ -38,4 +39,16 @@ target_link_libraries(kv_store_tests PRIVATE
 
 include(GoogleTest)
 
+if(BUILD_BENCHMARKS)
+find_package(benchmark CONFIG REQUIRED)
+add_executable(kv_store_benchmarks
+	benchmarks/Benchmark.cpp
+)
+
+target_link_libraries(kv_store_benchmarks PRIVATE
+	kv_store_storage
+	benchmark::benchmark_main
+)
+
+endif()
 gtest_discover_tests(kv_store_tests)

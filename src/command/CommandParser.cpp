@@ -99,4 +99,3 @@ Command CommandParser::parse(const std::string& buffer) const{
 	}
 	return command;
 	}
-}
